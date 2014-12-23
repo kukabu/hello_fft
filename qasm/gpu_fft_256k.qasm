@@ -2,7 +2,7 @@
 #
 # Copyright (c) 2014, Andrew Holme.
 # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #     * Redistributions of source code must retain the above copyright
@@ -13,7 +13,7 @@
 #     * Neither the name of the copyright holder nor the
 #       names of its contributors may be used to endorse or promote products
 #       derived from this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 # ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 # WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -25,15 +25,15 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-.set STAGES, 17
+.set STAGES, 18
 
 .include "gpu_fft_ex.qinc"
 
 ##############################################################################
 # Twiddles
 
-.set TW_SHARED,     5
-.set TW_UNIQUE,     1
+.set TW_SHARED,     6
+.set TW_UNIQUE,     2
 
 .set TW32_P1_BASE,  0
 .set TW16_P1_BASE,  1
@@ -41,9 +41,11 @@
 .set TW16_P3_BASE,  TW16_P1_BASE
 .set TW16_P2_STEP,  2
 .set TW16_P3_STEP,  3
-.set TW16_P4_STEP,  4
+.set TW32_P4_STEP,  4
+.set TW16_P4_STEP,  5
 
-.set TW16_P4_BASE,  5
+.set TW32_P4_BASE,  6
+.set TW16_P4_BASE,  7
 
 .set TW32_ACTIVE,   TW_SHARED+TW_UNIQUE
 .set TW16_ACTIVE,   TW_SHARED+TW_UNIQUE+1
@@ -74,8 +76,8 @@
 .set ra_save_32,        ra10
 .set rx_save_slave_32,  rb10
 
-.set ra_tw_re,          ra11 # 11
-.set rb_tw_im,          rb11 # 11
+.set ra_tw_re,          ra11 # 13
+.set rb_tw_im,          rb11 # 13
 
 .set ra_vpm_lo,         ra25
 .set ra_vpm_hi,         ra26
@@ -93,7 +95,7 @@
 .set rb_0x80,           rb28
 .set rb_0xF0,           rb29
 .set rb_0x100,          rb30
-.set rb_0xFFF,          rb31
+.set rb_0x1FFF,         rb31
 
 ##############################################################################
 # Constants
@@ -105,7 +107,7 @@ mov rb_0x40,    0x40
 mov rb_0x80,    0x80
 mov rb_0xF0,    0xF0
 mov rb_0x100,   0x100
-mov rb_0xFFF,   0xFFF
+mov rb_0x1FFF,  0x1FFF
 
 mov rx_0x55555555, 0x55555555
 mov rx_0x33333333, 0x33333333
@@ -113,8 +115,8 @@ mov rx_0x0F0F0F0F, 0x0F0F0F0F
 mov rx_0x00FF00FF, 0x00FF00FF
 mov rx_0x0000FFFF, 0x0000FFFF
 
-mov ra_vdw_16, vdw_setup_0(16, 16, dma_h32( 0,0))
-mov rb_vdw_16, vdw_setup_0(16, 16, dma_h32(32,0))
+mov ra_vdw_16, vdw_setup_0( 1, 16, dma_h32( 0,0))
+mov rb_vdw_16, vdw_setup_0( 1, 16, dma_h32(32,0))
 mov ra_vdw_32, vdw_setup_0(32, 16, dma_h32( 0,0))
 mov rb_vdw_32, vdw_setup_0(32, 16, dma_h32(32,0))
 
@@ -134,6 +136,11 @@ inst_vpm rb_inst, ra_vpm_lo, ra_vpm_hi, rb_vpm_lo, rb_vpm_hi
 # Macros
 
 .macro swizzle
+.endm
+
+.macro next_twiddles, tw16, tw32
+    next_twiddles_32 tw32
+    next_twiddles_16 tw16
 .endm
 
 .macro init_stage, tw16, tw32
@@ -178,8 +185,10 @@ body_rx_sync_slave
 
 :pass_2
 :pass_3
-:pass_4
     body_pass_16 LOAD_STRAIGHT
+
+:pass_4
+    body_pass_32 LOAD_STRAIGHT
 
 ##############################################################################
 # Top level
@@ -233,7 +242,7 @@ body_rx_sync_slave
         nop
         add ra_points, ra_points, rb_0x80
 
-        and.setf -, ra_points, rb_0xFFF
+        and.setf -, ra_points, rb_0x1FFF
 
         brr.allnz -, r:pass_2
         nop
@@ -261,7 +270,7 @@ body_rx_sync_slave
     init_stage_16 TW16_P3_BASE, 4
     read_lin rb_0x80
 
-    .rep i, 2
+    .rep i, 4
         brr ra_link_1, r:pass_3
         nop
         nop
@@ -273,7 +282,7 @@ body_rx_sync_slave
         shr.setf -, ra_points, rb_STAGES
 
         brr.allz -, r:pass_3
-        mov r0, 4*8
+        mov r0, 3*4*8
         sub ra_link_1, ra_link_1, r0
         add ra_points, ra_points, rb_0x80
 
@@ -286,22 +295,22 @@ body_rx_sync_slave
 # Pass 4
 
     swap_buffers
-    init_stage_16 TW16_P4_BASE, 4
-    read_lin rb_0x80
+    init_stage TW16_P4_BASE, TW32_P4_BASE
+    read_lin rb_0x10
 
         brr ra_link_1, r:pass_4
         nop
         nop
-        add ra_points, ra_points, rb_0x80
+        add ra_points, ra_points, rb_0x100
 
-        next_twiddles_16 TW16_P4_STEP
+        next_twiddles TW16_P4_STEP, TW32_P4_STEP
 
         shr.setf -, ra_points, rb_STAGES
 
         brr.allz -, r:pass_4
         nop
         nop
-        add ra_points, ra_points, rb_0x80
+        add ra_points, ra_points, rb_0x100
 
     bra ra_link_1, ra_sync
     nop
