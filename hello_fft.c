@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
     loops  = argc>3? atoi(argv[3]) : 1;  // test repetitions
 
     if (argc<2 || jobs<1 || loops<1) {
-        printf(Usage);
+        printf("%s", Usage);
         return -1;
     }
 
