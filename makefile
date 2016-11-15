@@ -1,3 +1,6 @@
+CFLAGS += -g -Wall -pipe -O2
+LDFLAGS += -lrt -lm -ldl
+
 S = hex/shader_256.hex \
     hex/shader_512.hex \
     hex/shader_1k.hex \
@@ -22,13 +25,14 @@ C2D = $(C) hello_fft_2d.c gpu_fft_trans.c
 H1D = gpu_fft.h mailbox.h 
 H2D = gpu_fft.h mailbox.h gpu_fft_trans.h hello_fft_2d_bitmap.h
 
-F = -lrt -lm -ldl
 
-hello_fft.bin:	$(S) $(C1D) $(H1D)
-	gcc -o hello_fft.bin $(F) $(C1D)
-
-hello_fft_2d.bin:	$(S) hex/shader_trans.hex $(C2D) $(H2D)
-	gcc -o hello_fft_2d.bin $(F) $(C2D)
+all: hello_fft.bin hello_fft_2d.bin
 
 clean:
-	rm -f *.bin
+	$(RM) *.bin
+
+hello_fft.bin: $(S) $(C1D) $(H1D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o hello_fft.bin $(C1D)
+
+hello_fft_2d.bin: $(S) hex/shader_trans.hex $(C2D) $(H2D)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o hello_fft_2d.bin $(C2D)
