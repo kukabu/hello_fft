@@ -35,21 +35,18 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "mailbox.h"
 #include "gpu_fft.h"
 
+#define timespec_diff_ns(x, y) \
+    ((((x).tv_sec-(y).tv_sec)*1000000000LL)+((x).tv_nsec-(y).tv_nsec))
+
 char Usage[] =
     "Usage: hello_fft.bin log2_N [jobs [loops]]\n"
     "log2_N = log2(FFT_length),       log2_N = 8...22\n"
     "jobs   = transforms per batch,   jobs>0,        default 1\n"
     "loops  = number of test repeats, loops>0,       default 1\n";
 
-unsigned Microseconds(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return ts.tv_sec*1000000 + ts.tv_nsec/1000;
-}
-
 int main(int argc, char *argv[]) {
     int i, j, k, ret, loops, freq, log2_N, jobs, N, mb = mbox_open();
-    unsigned t[2];
+    struct timespec t[2];
     double tsq[2];
 
     struct GPU_FFT_COMPLEX *base;
@@ -85,9 +82,9 @@ int main(int argc, char *argv[]) {
         }
 
         usleep(1); // Yield to OS
-        t[0] = Microseconds();
+        clock_gettime(CLOCK_MONOTONIC, &t[0]);
         gpu_fft_execute(fft); // call one or many times
-        t[1] = Microseconds();
+        clock_gettime(CLOCK_MONOTONIC, &t[1]);
 
         tsq[0]=tsq[1]=0;
         for (j=0; j<jobs; j++) {
@@ -99,9 +96,8 @@ int main(int argc, char *argv[]) {
                 tsq[1] += pow(re - base[i].re, 2) + pow(base[i].im, 2);
             }
         }
-
-        printf("rel_rms_err = %0.2g, usecs = %d, k = %d\n",
-            sqrt(tsq[1]/tsq[0]), (t[1]-t[0])/jobs, k);
+        printf("rel_rms_err = %0.2g, usecs = %lld, k = %d\n",
+            sqrt(tsq[1]/tsq[0]), timespec_diff_ns(t[1], t[0])/1000/jobs, k);
     }
 
     gpu_fft_release(fft); // Videocore memory lost if not freed !

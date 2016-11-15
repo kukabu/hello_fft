@@ -40,15 +40,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #define GPU_FFT_ROW(fft, io, y) ((fft)->io+(fft)->step*(y))
 
-unsigned Microseconds(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    return ts.tv_sec*1000000 + ts.tv_nsec/1000;
-}
+#define timespec_diff_ns(x, y) \
+    ((((x).tv_sec-(y).tv_sec)*1000000000LL)+((x).tv_nsec-(y).tv_nsec))
 
 int main(int argc, char *argv[]) {
     int x, y, ret, mb = mbox_open();
-    unsigned t[4];
+    struct timespec t[4];
 
     struct GPU_FFT_COMPLEX *row;
     struct GPU_FFT_TRANS *trans;
@@ -79,12 +76,12 @@ int main(int argc, char *argv[]) {
     fwrite(&bih, sizeof(bih), 1, fp);
 
     // Prepare 1st FFT pass
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, N, fft_pass+0);
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, N, &fft_pass[0]);
     if (ret) {
         return ret;
     }
     // Prepare 2nd FFT pass
-    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, N, fft_pass+1);
+    ret = gpu_fft_prepare(mb, log2_N, GPU_FFT_REV, N, &fft_pass[1]);
     if (ret) {
         gpu_fft_release(fft_pass[0]);
         return ret;
@@ -108,10 +105,14 @@ int main(int argc, char *argv[]) {
     GPU_FFT_ROW(fft_pass[0], in, N-2)[N-2].re = 60;
 
     // ==> FFT() ==> T() ==> FFT() ==>
-    usleep(1); /* yield to OS */   t[0] = Microseconds();
-    gpu_fft_execute(fft_pass[0]);  t[1] = Microseconds();
-    gpu_fft_trans_execute(trans);  t[2] = Microseconds();
-    gpu_fft_execute(fft_pass[1]);  t[3] = Microseconds();
+    usleep(1); /* yield to OS */
+    clock_gettime(CLOCK_MONOTONIC, &t[0]);
+    gpu_fft_execute(fft_pass[0]);
+    clock_gettime(CLOCK_MONOTONIC, &t[1]);
+    gpu_fft_trans_execute(trans);
+    clock_gettime(CLOCK_MONOTONIC, &t[2]);
+    gpu_fft_execute(fft_pass[1]);
+    clock_gettime(CLOCK_MONOTONIC, &t[3]);
 
     // Write output to bmp file
     for (y=0; y<N; y++) {
@@ -122,11 +123,12 @@ int main(int argc, char *argv[]) {
             fputc(128+row[x].re, fp); // red
         }
     }
-
-    printf( "1st FFT   %6d usecs\n"
-            "Transpose %6d usecs\n"
-            "2nd FFT   %6d usecs\n",
-            t[3]-t[2], t[2]-t[1], t[1]-t[0]);
+    printf( "1st FFT   %6lld usecs\n"
+            "Transpose %6lld usecs\n"
+            "2nd FFT   %6lld usecs\n",
+            timespec_diff_ns(t[3], t[2])/1000,
+            timespec_diff_ns(t[2], t[1])/1000,
+            timespec_diff_ns(t[1], t[0])/1000);
 
     // Clean-up properly.  Videocore memory lost if not freed !
     gpu_fft_release(fft_pass[0]);
